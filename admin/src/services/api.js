@@ -7,7 +7,9 @@ const API_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/
 
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 30000, // 30s timeout for Render free-tier cold starts
 });
+
 
 
 // Request interceptor to attach JWT token
