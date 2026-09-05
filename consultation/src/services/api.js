@@ -1,7 +1,9 @@
 import axios from 'axios';
 
 // Base URL configuration for the API client, using the Vite environment variable
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const rawApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const cleanBaseUrl = rawApiUrl.replace(/\/+$/, '');
+const API_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
 
 const api = axios.create({
   baseURL: API_URL,
@@ -9,6 +11,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
 
 export const getDoctors = async () => {
   return api.get('/doctors');
