@@ -23,7 +23,14 @@ app.use(helmet());
 // Enable CORS
 const corsOptions = {
   origin: (origin, callback) => {
-    // Parse allowed origins from FRONTEND_URL and ADMIN_URL (support comma-separated origins)
+    const staticOrigins = [
+      'https://mamta-hospital-telemedicine.vercel.app',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:5174',
+      'http://127.0.0.1:5174',
+    ];
+
     const envOrigins = [
       process.env.FRONTEND_URL,
       process.env.ADMIN_URL,
@@ -31,29 +38,26 @@ const corsOptions = {
       .filter(Boolean)
       .flatMap((url) => url.split(',').map((u) => u.trim().replace(/\/+$/, '')));
 
-    const devOrigins = [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'http://localhost:5174',
-      'http://127.0.0.1:5174',
-    ];
-
-    const allowedOrigins = [
-      ...envOrigins,
-      ...(process.env.NODE_ENV !== 'production' ? devOrigins : []),
-    ];
-
+    const allowedOrigins = Array.from(new Set([...staticOrigins, ...envOrigins]));
     const cleanOrigin = origin ? origin.replace(/\/+$/, '') : null;
 
-    if (!origin || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes('*')) {
+    if (
+      !origin ||
+      allowedOrigins.includes(cleanOrigin) ||
+      (cleanOrigin && cleanOrigin.endsWith('.vercel.app'))
+    ) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error(`Not allowed by CORS: ${origin}`));
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 
 // Development logging
 if (process.env.NODE_ENV !== 'production') {

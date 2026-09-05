@@ -1,8 +1,14 @@
 import axios from 'axios';
 
+const DEFAULT_API_URL = 'https://mamta-hospital-telemedicine.onrender.com/api';
+const rawApiUrl = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
+const cleanBaseUrl = rawApiUrl.replace(/\/+$/, '');
+const API_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  baseURL: API_URL,
 });
+
 
 // Request interceptor to attach JWT token
 api.interceptors.request.use(
