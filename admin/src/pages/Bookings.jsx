@@ -12,7 +12,8 @@ import {
   CheckCircle,
   HelpCircle,
   Copy,
-  Mail
+  Mail,
+  RefreshCw
 } from 'lucide-react';
 
 const Bookings = () => {
@@ -34,7 +35,7 @@ const Bookings = () => {
   const [modalPayment, setModalPayment] = useState('');
   const [modalPaymentId, setModalPaymentId] = useState('');
   const [updating, setUpdating] = useState(false);
-  const [retryingCalcom, setRetryingCalcom] = useState(false);
+  const [retryingMeeting, setRetryingMeeting] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
 
   const fetchFiltersData = async () => {
@@ -133,24 +134,24 @@ const Bookings = () => {
     }
   };
 
-  const handleRetryCalcom = async () => {
+  const handleRetryMeeting = async () => {
     if (!selectedBooking) return;
-    setRetryingCalcom(true);
+    setRetryingMeeting(true);
     setError('');
     setSuccess('');
 
     try {
-      const res = await api.post(`/admin/bookings/${selectedBooking._id}/retry-calcom`);
+      const res = await api.post(`/admin/bookings/${selectedBooking._id}/retry-meeting`);
       if (res.data && res.data.success) {
-        setSuccess(`Cal.com booking ${res.data.data.booking?.calcomBookingUid ? 'created' : 'retried'} successfully.`);
+        setSuccess(`Google Calendar event & Meet room created successfully for ${res.data.data.booking?.bookingId}.`);
         setSelectedBooking(res.data.data.booking);
         fetchBookingsList();
       }
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.message || 'Failed to retry Cal.com booking.');
+      setError(err.response?.data?.message || 'Failed to create Google Meeting.');
     } finally {
-      setRetryingCalcom(false);
+      setRetryingMeeting(false);
     }
   };
 
@@ -180,7 +181,7 @@ const Bookings = () => {
       <div className="page-header-row">
         <div>
           <h2>Manage Bookings</h2>
-          <p className="page-subtitle">Track, verify, and update patient consultations schedules</p>
+          <p className="page-subtitle">Track, verify, and update patient consultation schedules</p>
         </div>
       </div>
 
@@ -229,7 +230,7 @@ const Bookings = () => {
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
               <option value="confirmed">Confirmed</option>
-              <option value="calcom_pending">Cal.com Pending</option>
+              <option value="meeting_pending">Meeting Link Pending</option>
               <option value="cancelled">Cancelled</option>
               <option value="completed">Completed</option>
               <option value="no_show">No Show</option>
@@ -285,56 +286,59 @@ const Bookings = () => {
                 </tr>
               </thead>
               <tbody>
-                {bookings.map((booking) => (
-                  <tr key={booking._id}>
-                    <td className="bold">{booking.bookingId}</td>
-                    <td>
-                      <div className="patient-cell">
-                        <p className="name">{booking.patient.name}</p>
-                        <p className="sub">{booking.patient.phone}</p>
-                      </div>
-                    </td>
-                    <td>{booking.doctorId?.name || 'Doctor Not Set'}</td>
-                    <td>
-                      {new Date(booking.date).toLocaleDateString('en-IN', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        timeZone: 'UTC'
-                      })}
-                    </td>
-                    <td>
-                      <span className="badge badge-light">
-                        {booking.startTime} - {booking.endTime}
-                      </span>
-                    </td>
-                    <td>₹{booking.amount}</td>
-                    <td>
-                      <span className={`badge badge-${booking.paymentStatus === 'paid' ? 'success' : booking.paymentStatus === 'failed' ? 'error' : 'warning'}`}>
-                        {booking.paymentStatus.toUpperCase()}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge badge-${booking.bookingStatus === 'confirmed' ? 'success' : booking.bookingStatus === 'cancelled' ? 'error' : booking.bookingStatus === 'completed' ? 'info' : booking.bookingStatus === 'calcom_pending' ? 'warning' : 'warning'}`}>
-                        {booking.bookingStatus === 'calcom_pending' ? 'CAL PENDING' : booking.bookingStatus.toUpperCase()}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge badge-${booking.emailStatus === 'sent' ? 'success' : booking.emailStatus === 'failed' ? 'error' : 'warning'}`}>
-                        {(booking.emailStatus || 'pending').toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <button 
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleOpenDetails(booking)}
-                      >
-                        <Info size={14} style={{ marginRight: '4px' }} />
-                        <span>Manage</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {bookings.map((booking) => {
+                  const meetUrl = booking.googleMeetUrl || booking.googleMeetLink;
+                  return (
+                    <tr key={booking._id}>
+                      <td className="bold">{booking.bookingId}</td>
+                      <td>
+                        <div className="patient-cell">
+                          <p className="name">{booking.patient.name}</p>
+                          <p className="sub">{booking.patient.phone}</p>
+                        </div>
+                      </td>
+                      <td>{booking.doctorId?.name ? `Dr. ${booking.doctorId.name}` : 'Doctor Not Set'}</td>
+                      <td>
+                        {new Date(booking.date).toLocaleDateString('en-IN', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          timeZone: 'UTC'
+                        })}
+                      </td>
+                      <td>
+                        <span className="badge badge-light">
+                          {booking.startTime} - {booking.endTime}
+                        </span>
+                      </td>
+                      <td>₹{booking.amount}</td>
+                      <td>
+                        <span className={`badge badge-${booking.paymentStatus === 'paid' ? 'success' : booking.paymentStatus === 'failed' ? 'error' : 'warning'}`}>
+                          {booking.paymentStatus.toUpperCase()}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge badge-${booking.bookingStatus === 'confirmed' ? 'success' : booking.bookingStatus === 'cancelled' ? 'error' : booking.bookingStatus === 'completed' ? 'info' : booking.bookingStatus === 'meeting_pending' ? 'warning' : 'warning'}`}>
+                          {booking.bookingStatus === 'meeting_pending' ? 'MEETING PENDING' : booking.bookingStatus.toUpperCase()}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge badge-${booking.emailStatus === 'sent' ? 'success' : booking.emailStatus === 'failed' ? 'error' : 'warning'}`}>
+                          {(booking.emailStatus || 'pending').toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        <button 
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleOpenDetails(booking)}
+                        >
+                          <Info size={14} style={{ marginRight: '4px' }} />
+                          <span>Manage</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -411,47 +415,30 @@ const Bookings = () => {
                 </div>
 
                 <div className="details-section">
-                  <h4>Video Consultation &amp; Calendar</h4>
+                  <h4>Google Calendar &amp; Video Consultation</h4>
                   <div className="details-link-box">
                     <Video size={20} className="icon" />
                     <div className="box-content">
                       <p className="title">Google Meet Link</p>
-                      {selectedBooking.googleMeetLink ? (
+                      {(selectedBooking.googleMeetUrl || selectedBooking.googleMeetLink) ? (
                         <div className="link-wrapper">
-                          <span className="link">{selectedBooking.googleMeetLink}</span>
-                          <button className="btn-icon-mini" onClick={() => handleCopyLink(selectedBooking.googleMeetLink)} title="Copy Link"><Copy size={12} /></button>
-                          <a href={selectedBooking.googleMeetLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-xs">Open Meeting <ExternalLink size={12} /></a>
+                          <span className="link">{selectedBooking.googleMeetUrl || selectedBooking.googleMeetLink}</span>
+                          <button className="btn-icon-mini" onClick={() => handleCopyLink(selectedBooking.googleMeetUrl || selectedBooking.googleMeetLink)} title="Copy Link"><Copy size={12} /></button>
+                          <a href={selectedBooking.googleMeetUrl || selectedBooking.googleMeetLink} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-xs">Join Google Meet <ExternalLink size={12} /></a>
                         </div>
                       ) : (
-                        <p className="status text-muted">Meet link will be provided by Cal.com after booking is confirmed</p>
+                        <p className="status text-muted">Meeting link pending (Will be generated automatically or via Retry)</p>
                       )}
                     </div>
                   </div>
 
-                  {/* Cal.com booking info */}
                   <div className="details-grid" style={{ marginTop: '12px' }}>
-                    <div>
-                      <p className="label">Cal.com Booking ID</p>
-                      <p className="val">{selectedBooking.calcomBookingId || <span className="text-muted">Not created yet</span>}</p>
-                    </div>
-                    <div>
-                      <p className="label">Cal.com Status</p>
-                      <p className="val">
-                        {selectedBooking.calcomStatus ? (
-                          <span className={`badge badge-${selectedBooking.calcomStatus === 'accepted' || selectedBooking.calcomStatus === 'confirmed' ? 'success' : selectedBooking.calcomStatus === 'cancelled' || selectedBooking.calcomStatus === 'rejected' ? 'error' : 'warning'}`}>
-                            {selectedBooking.calcomStatus.toUpperCase()}
-                          </span>
-                        ) : (
-                          <span className="badge badge-warning">NOT CREATED</span>
-                        )}
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <p className="label">Google Calendar Event ID</p>
+                      <p className="val" style={{ fontFamily: 'monospace', fontSize: '13px' }}>
+                        {selectedBooking.googleCalendarEventId || selectedBooking.googleEventId || <span className="text-muted">Not Created Yet</span>}
                       </p>
                     </div>
-                    {selectedBooking.calcomBookingUid && (
-                      <div style={{ gridColumn: 'span 2' }}>
-                        <p className="label">Cal.com UID</p>
-                        <p className="val" style={{ fontFamily: 'monospace', fontSize: '12px' }}>{selectedBooking.calcomBookingUid}</p>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -469,8 +456,8 @@ const Bookings = () => {
                     <div>
                       <p className="label">Booking Status</p>
                       <p className="val">
-                        <span className={`badge badge-${selectedBooking.bookingStatus === 'confirmed' ? 'success' : selectedBooking.bookingStatus === 'cancelled' ? 'error' : selectedBooking.bookingStatus === 'calcom_pending' ? 'warning' : 'warning'}`}>
-                          {selectedBooking.bookingStatus === 'calcom_pending' ? 'CAL PENDING' : selectedBooking.bookingStatus.toUpperCase()}
+                        <span className={`badge badge-${selectedBooking.bookingStatus === 'confirmed' ? 'success' : selectedBooking.bookingStatus === 'cancelled' ? 'error' : selectedBooking.bookingStatus === 'meeting_pending' ? 'warning' : 'warning'}`}>
+                          {selectedBooking.bookingStatus === 'meeting_pending' ? 'MEETING PENDING' : selectedBooking.bookingStatus.toUpperCase()}
                         </span>
                       </p>
                     </div>
@@ -494,6 +481,7 @@ const Bookings = () => {
                       >
                         <option value="pending">Pending</option>
                         <option value="confirmed">Confirmed</option>
+                        <option value="meeting_pending">Meeting Link Pending</option>
                         <option value="cancelled">Cancelled</option>
                         <option value="completed">Completed</option>
                         <option value="no_show">No Show</option>
@@ -542,17 +530,31 @@ const Bookings = () => {
                       {updating ? 'Saving updates...' : 'Save Management Status'}
                     </button>
 
-                    {/* Retry Cal.com Booking button — shown when calcom not yet created or calcom_pending */}
-                    {(!selectedBooking.calcomBookingUid || selectedBooking.bookingStatus === 'calcom_pending') && selectedBooking.paymentStatus === 'paid' && (
+                    {/* Retry Google Meeting Creation button — shown when paid AND meet link missing */}
+                    {selectedBooking.paymentStatus === 'paid' && (!selectedBooking.googleMeetUrl || selectedBooking.bookingStatus === 'meeting_pending') && (
                       <button
                         type="button"
                         className="btn btn-secondary btn-block"
-                        onClick={handleRetryCalcom}
-                        disabled={retryingCalcom}
+                        onClick={handleRetryMeeting}
+                        disabled={retryingMeeting}
                         style={{ marginTop: '12px' }}
                       >
-                        <ExternalLink size={16} style={{ marginRight: '6px' }} />
-                        {retryingCalcom ? 'Creating Cal.com Booking...' : 'Retry Cal.com Booking'}
+                        <RefreshCw size={16} style={{ marginRight: '6px' }} />
+                        {retryingMeeting ? 'Creating Google Meeting...' : 'Retry Meeting Creation'}
+                      </button>
+                    )}
+
+                    {/* Resend Confirmation Email button — shown when confirmed */}
+                    {selectedBooking.bookingStatus === 'confirmed' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-block"
+                        onClick={handleResendConfirmationEmail}
+                        disabled={resendingEmail}
+                        style={{ marginTop: '8px' }}
+                      >
+                        <Mail size={16} style={{ marginRight: '6px' }} />
+                        {resendingEmail ? 'Sending Email...' : 'Resend Confirmation Email'}
                       </button>
                     )}
                   </form>
@@ -567,4 +569,3 @@ const Bookings = () => {
 };
 
 export default Bookings;
-

@@ -3,7 +3,8 @@ import { razorpayConfig } from '../config/razorpay.js';
 import Booking from '../models/Booking.js';
 import Doctor from '../models/Doctor.js';
 import Payment from '../models/Payment.js';
-import { createCalcomBooking } from './calcomService.js';
+import { createGoogleCalendarEvent } from './googleCalendarService.js';
+import { sendPatientConfirmationEmail, sendDoctorNotificationEmail } from './emailService.js';
 
 /**
  * Creates a Razorpay Order for a booking
@@ -40,14 +41,16 @@ export const createOrder = async (bookingId) => {
 };
 
 /**
- * Verifies Razorpay payment signature, confirms booking, creates Cal.com booking.
+ * Verifies Razorpay payment signature, confirms booking, creates Google Calendar event & Meet link, and dispatches Resend confirmation emails.
  * 
  * Flow:
  * 1. Verify Razorpay signature (server-side)
- * 2. Mark payment as paid + booking as confirmed (or calcom_pending on Cal.com failure)
+ * 2. Mark payment as paid
  * 3. Log payment record (idempotent)
- * 4. Create Cal.com booking → Google Calendar + Meet + confirmation email handled by Cal.com
- * 5. Return booking with all data
+ * 4. Create Google Calendar Event + unique Google Meet URL (idempotent)
+ * 5. Update bookingStatus: 'confirmed' (or 'meeting_pending' if Google Calendar fails)
+ * 6. Send confirmation email to patient & notification to doctor via Resend
+ * 7. Return booking with populated data
  */
 export const verifyPayment = async (bookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature) => {
   const booking = await Booking.findById(bookingId);
@@ -55,9 +58,9 @@ export const verifyPayment = async (bookingId, razorpayOrderId, razorpayPaymentI
     throw new Error('Booking not found');
   }
 
-  // Idempotency: if already paid, skip verification and return existing booking
-  if (booking.paymentStatus === 'paid') {
-    console.log(`[PAYMENT] Idempotent skip — booking ${booking.bookingId} already paid`);
+  // Idempotency: if already paid AND has meeting confirmed & email dispatched/processed, return existing booking
+  if (booking.paymentStatus === 'paid' && booking.googleCalendarEventId && booking.googleMeetUrl) {
+    console.log(`[PAYMENT] Idempotent skip — booking ${booking.bookingId} already paid and meeting created.`);
     const existingBooking = await Booking.findById(booking._id).populate('doctorId');
     return { success: true, booking: existingBooking };
   }
@@ -86,8 +89,6 @@ export const verifyPayment = async (bookingId, razorpayOrderId, razorpayPaymentI
   // 2. Mark payment as paid
   booking.razorpayPaymentId = razorpayPaymentId || `pay_${Math.random().toString(36).substring(2, 15)}`;
   booking.paymentStatus = 'paid';
-  // Temporarily set to confirmed; may change to calcom_pending below
-  booking.bookingStatus = 'confirmed';
   await booking.save();
 
   console.log(`[PAYMENT VERIFIED] Booking ID: ${booking.bookingId} | Payment ID: ${booking.razorpayPaymentId}`);
@@ -107,43 +108,61 @@ export const verifyPayment = async (bookingId, razorpayOrderId, razorpayPaymentI
     await paymentLog.save();
   }
 
-  // 4. Create Cal.com booking (Google Calendar + Meet + confirmation email handled by Cal.com)
-  if (!booking.calcomBookingUid) {
-    const doctor = await Doctor.findById(booking.doctorId);
-    
+  // 4. Create Google Calendar Event & Google Meet Link (Idempotent check)
+  const doctor = await Doctor.findById(booking.doctorId);
+
+  if (!booking.googleCalendarEventId || !booking.googleMeetUrl) {
     if (doctor) {
-      const calResult = await createCalcomBooking(booking, doctor);
-
-      if (calResult.error) {
-        // Payment is confirmed but Cal.com failed — mark as calcom_pending for admin retry
-        booking.bookingStatus = 'calcom_pending';
-        console.error(`[CALCOM] Booking creation failed — marking as calcom_pending. Error: ${calResult.error}`);
-      } else {
-        // Success — save all Cal.com data
-        if (calResult.calcomBookingId) booking.calcomBookingId = calResult.calcomBookingId;
-        if (calResult.calcomBookingUid) booking.calcomBookingUid = calResult.calcomBookingUid;
-        if (calResult.googleMeetLink) booking.googleMeetLink = calResult.googleMeetLink;
-        if (calResult.calcomStatus) booking.calcomStatus = calResult.calcomStatus;
+      try {
+        const calResult = await createGoogleCalendarEvent(booking, doctor);
+        booking.googleCalendarEventId = calResult.googleCalendarEventId;
+        booking.googleEventId = calResult.googleCalendarEventId;
+        booking.googleMeetUrl = calResult.googleMeetUrl;
+        booking.googleMeetLink = calResult.googleMeetUrl;
         booking.bookingStatus = 'confirmed';
-        console.log(`[BOOKING CONFIRMED] Booking ID: ${booking.bookingId} | Cal.com UID: ${booking.calcomBookingUid}`);
+        await booking.save();
+        console.log(`[GOOGLE CALENDAR CONFIRMED] Booking ID: ${booking.bookingId} | Event ID: ${booking.googleCalendarEventId} | Meet: ${booking.googleMeetUrl}`);
+      } catch (calErr) {
+        console.error(`[GOOGLE CALENDAR FAILED] Google Calendar event creation failed for booking ${booking.bookingId}:`, calErr.message);
+        booking.bookingStatus = 'meeting_pending';
+        await booking.save();
       }
-
-      await booking.save();
     } else {
-      console.error(`[CALCOM] Doctor not found for booking ${booking.bookingId} — skipping Cal.com`);
+      console.error(`[GOOGLE CALENDAR FAILED] Doctor not found for booking ${booking.bookingId}`);
+      booking.bookingStatus = 'meeting_pending';
+      await booking.save();
     }
-  } else {
-    console.log(`[CALCOM] Skipping Cal.com creation — booking ${booking.bookingId} already has UID: ${booking.calcomBookingUid}`);
   }
 
-  // 5. Return fresh populated booking
+  // 5. Send Resend Confirmation Emails (after payment verified — regardless of Google Calendar status)
+  if ((booking.bookingStatus === 'confirmed' || booking.bookingStatus === 'meeting_pending') && booking.emailStatus !== 'sent') {
+    try {
+      await sendPatientConfirmationEmail(booking, doctor);
+      try {
+        await sendDoctorNotificationEmail(booking, doctor);
+      } catch (docEmailErr) {
+        console.error(`[RESEND EMAIL] Doctor notification email failed: ${docEmailErr.message}`);
+      }
+      booking.emailStatus = 'sent';
+      booking.emailSentAt = new Date();
+      booking.emailError = '';
+      await booking.save();
+    } catch (emailErr) {
+      console.error(`[RESEND EMAIL FAILED] Patient confirmation email failed for booking ${booking.bookingId}:`, emailErr.message);
+      booking.emailStatus = 'failed';
+      booking.emailError = emailErr.message;
+      await booking.save();
+      // DO NOT throw error or set booking to failed — consultation remains confirmed!
+    }
+  }
+
+  // 6. Return fresh populated booking
   const updatedBooking = await Booking.findById(booking._id).populate('doctorId');
   return {
     success: true,
     booking: updatedBooking,
   };
 };
-
 
 /**
  * Processes Razorpay webhook events (idempotent)
@@ -174,11 +193,16 @@ export const handleWebhook = async (webhookHeaderSignature, rawBody) => {
     if (booking && booking.paymentStatus !== 'paid') {
       booking.paymentStatus = 'paid';
       booking.razorpayPaymentId = razorpayPaymentId;
-      if (booking.bookingStatus === 'pending') {
-        booking.bookingStatus = 'confirmed';
-      }
       await booking.save();
-      console.log(`[RAZORPAY WEBHOOK] payment.captured — Booking ${booking.bookingId} updated`);
+
+      // Trigger payment verification workflow (creates Google Calendar event + sends emails)
+      try {
+        await verifyPayment(booking._id, razorpayOrderId, razorpayPaymentId, null);
+      } catch (err) {
+        console.error(`[RAZORPAY WEBHOOK] Error triggering verifyPayment: ${err.message}`);
+      }
+
+      console.log(`[RAZORPAY WEBHOOK] payment.captured — Booking ${booking.bookingId} processed`);
     }
   } else if (event === 'payment.failed' && paymentEntity) {
     const razorpayOrderId = paymentEntity.order_id;

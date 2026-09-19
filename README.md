@@ -156,23 +156,104 @@ The React interface will run at `http://localhost:5173`. Open it in your web bro
 
 ---
 
-## 7. Future Integrations (Architecture Placeholders)
+## 7. Google Calendar & OAuth 2.0 Setup
 
-### Razorpay Payments (`backend/src/services/paymentService.js`)
-- Currently generates mock Razorpay order configurations (`order_xxx`).
-- Saves the order ID to the Booking record with `paymentStatus = pending`.
-- When real API keys are ready, uncomment the import of `razorpay` and initialization in `config/razorpay.js`, then plug in the creation and signature checks using Node's standard crypto library.
+The backend uses **Google Calendar API** with **OAuth 2.0** to automatically create Google Meet video links when an appointment is confirmed.
 
-### Google Meet & Calendar (`backend/src/services/googleMeetService.js`)
-- Triggers mock scheduling whenever a booking is marked `confirmed` or `paid` in the admin manager.
-- Currently responds with mock googleEventId and a mock meet link (`https://meet.google.com/abc-defg-hij`).
-- For production, configure Google Console OAuth credentials, download the Google API client (`googleapis`), initialize the calendar client in `config/google.js`, and uncomment the conference event creator in the service layer.
+### 7.1 — Google Cloud Console Configuration
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (e.g., `Mamta Hospital Telemedicine`).
+3. Enable the **Google Calendar API** for the project.
+4. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**.
+5. Select **Web application**.
+6. Under **Authorized Redirect URIs**, add **exactly**:
+   ```
+   https://mamta-hospital-telemedicine.onrender.com/api/auth/google/callback
+   ```
+7. Download/copy the **Client ID** and **Client Secret**.
+
+### 7.2 — Environment Variables
+
+Set these in your Render dashboard (or `.env` for local):
+
+| Variable | Description |
+|---|---|
+| `GOOGLE_CLIENT_ID` | OAuth 2.0 Client ID from Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | OAuth 2.0 Client Secret — **never expose this** |
+| `GOOGLE_REDIRECT_URI` | `https://mamta-hospital-telemedicine.onrender.com/api/auth/google/callback` |
+| `GOOGLE_REFRESH_TOKEN` | Obtained via OAuth flow (step 7.3 below) |
+| `GOOGLE_CALENDAR_ID` | `primary` (uses the hospital Google account's main calendar) |
+
+### 7.3 — Generating the Refresh Token (One-Time Setup)
+
+1. Deploy the backend to Render with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` set.
+2. Open a browser and visit:
+   ```
+   https://mamta-hospital-telemedicine.onrender.com/api/auth/google
+   ```
+3. Sign in with the **hospital's Google account** that owns the calendar.
+4. Grant the **Google Calendar** permission when prompted.
+5. Google redirects to `/api/auth/google/callback`.
+6. Open Render **Logs** — you will see:
+   ```
+   ║  GOOGLE_REFRESH_TOKEN=1//04xxxxxxxxxxxxxxxxxxxxxxx...
+   ```
+7. Copy the refresh token value.
+8. Add it as `GOOGLE_REFRESH_TOKEN` in Render environment variables.
+9. **Redeploy** the backend service.
+
+> ⚠️ **Security**: The refresh token is printed to server logs only. It is **never** sent to the browser or returned in any API response. Do not commit it to Git.
+
+### 7.4 — Booking Flow (End-to-End)
+
+```
+Patient → Select Doctor → Select Date → Select Time → Enter Details → Submit
+    ↓
+Backend validates booking (doctor active, slot available, no conflicts)
+    ↓
+Booking saved to MongoDB (status: pending)
+    ↓
+Patient verifies payment → POST /api/payments/verify
+    ↓
+Google Calendar event created with unique Google Meet link (Asia/Kolkata timezone)
+    ↓
+Booking updated: googleMeetUrl + googleCalendarEventId saved to MongoDB
+    ↓
+Resend confirmation email sent to patient with Meet link
+    ↓
+Response returned to frontend with confirmed booking details
+```
+
+### 7.5 — New API Routes
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/auth/google` | Redirects to Google consent page |
+| `GET` | `/api/auth/google/callback` | Handles OAuth callback, logs refresh token server-side |
+| `GET` | `/api/health` | Health check — returns service status & DB state |
 
 ---
 
-## 8. Deployment Notes (Vercel-compatible)
+## 8. Deployment Notes (Render + Vercel)
 
-To deploy to Vercel:
-1. Backend is fully structured as a modular server. In `backend/vercel.json`, you can define a route rewrite to direct `/api/(.*)` to `src/server.js` or `src/app.js` using `@vercel/node`.
-2. Admin frontend can be deployed as static site files (SPA redirect rules configured in `admin/vercel.json`).
-3. Set your environment variables (`MONGODB_URI`, `JWT_SECRET`, etc.) inside the Vercel dashboard.
+### Backend on Render
+- Set all environment variables in the Render dashboard under **Environment**.
+- The `GOOGLE_REDIRECT_URI` must exactly match the URI registered in Google Cloud Console.
+- After setting `GOOGLE_REFRESH_TOKEN`, redeploy for changes to take effect.
+
+### Admin / Consultation Frontends on Vercel
+- Set `VITE_API_URL=https://mamta-hospital-telemedicine.onrender.com/api` in Vercel environment.
+- Admin frontend runs at the Vercel deployment URL.
+- Vercel SPA redirect rules are configured in `admin/vercel.json` and `consultation/vercel.json`.
+
+---
+
+## 9. Security Notes
+
+- `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` are **never** sent to the frontend.
+- `.env` is listed in `.gitignore` — never commit it.
+- JWT tokens protect all admin-only routes.
+- Rate limiting (200 requests / 15 min per IP) is applied to all `/api` routes.
+- Helmet security headers are enabled.
+- CORS is locked to the listed frontend origins only.

@@ -48,7 +48,6 @@ const Doctors = () => {
     consultationFee: 500,
     consultationDuration: 30,
     isActive: true,
-    calcomEventTypeId: '',
   });
 
   // Drag & Drop Image State
@@ -93,7 +92,6 @@ const Doctors = () => {
       consultationFee: 500,
       consultationDuration: 30,
       isActive: true,
-      calcomEventTypeId: '',
     });
     setImageFileDetails(null);
     setImagePreviewUrl('');
@@ -119,7 +117,6 @@ const Doctors = () => {
       consultationFee: doctor.consultationFee !== undefined ? doctor.consultationFee : 500,
       consultationDuration: doctor.consultationDuration || 30,
       isActive: doctor.isActive !== undefined ? doctor.isActive : true,
-      calcomEventTypeId: doctor.calcomEventTypeId || '',
     });
     
     if (existingImageUrl) {
@@ -701,8 +698,7 @@ const Doctors = () => {
                   />
                 </div>
 
-                {/* Active Checkbox */}
-                <div className="form-group checkbox-group" style={{ marginBottom: '12px' }}>
+                <div className="form-group checkbox-group" style={{ marginBottom: 0 }}>
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
@@ -712,23 +708,6 @@ const Doctors = () => {
                     />
                     <span>Active & Available for Booking</span>
                   </label>
-                </div>
-
-                {/* Cal.com Event Type ID */}
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label htmlFor="calcomEventTypeId" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    Cal.com Event Type ID
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>(optional — overrides global setting)</span>
-                  </label>
-                  <input
-                    type="number"
-                    id="calcomEventTypeId"
-                    name="calcomEventTypeId"
-                    min="0"
-                    value={formData.calcomEventTypeId}
-                    onChange={handleInputChange}
-                    placeholder="e.g. 12345 (leave blank to use global default)"
-                  />
                 </div>
               </div>
 

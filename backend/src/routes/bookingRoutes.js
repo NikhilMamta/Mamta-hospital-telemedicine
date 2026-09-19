@@ -5,7 +5,8 @@ import {
   getBookingByBookingId,
   getAdminBookings,
   updateAdminBooking,
-  retryCalcomBookingHandler,
+  retryMeetingHandler,
+  resendConfirmationEmailHandler,
 } from '../controllers/bookingController.js';
 import { protectAdmin } from '../middleware/authMiddleware.js';
 
@@ -19,7 +20,7 @@ router.get('/bookings/:bookingId', getBookingByBookingId);
 // Protected admin booking routes
 router.get('/admin/bookings', protectAdmin, getAdminBookings);
 router.put('/admin/bookings/:id', protectAdmin, updateAdminBooking);
-router.post('/admin/bookings/:id/retry-calcom', protectAdmin, retryCalcomBookingHandler);
+router.post('/admin/bookings/:id/retry-meeting', protectAdmin, retryMeetingHandler);
+router.post('/admin/bookings/:id/resend-confirmation', protectAdmin, resendConfirmationEmailHandler);
 
 export default router;
-

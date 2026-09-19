@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBooking } from '../context/BookingContext';
-import { createBooking } from '../services/api';
+import { createBooking, verifyPayment } from '../services/api';
 import { ChevronLeft, CreditCard, AlertCircle, ShoppingBag, User, Calendar, Stethoscope } from 'lucide-react';
 
 const ReviewDetails = () => {
@@ -46,7 +46,27 @@ const ReviewDetails = () => {
       const res = await createBooking(payload);
 
       if (res.data && res.data.success) {
-        setLastCreatedBooking(res.data.data.booking);
+        const { booking, razorpayOrder } = res.data.data;
+        
+        // Payment verification trigger (creates Google Calendar event + sends emails)
+        try {
+          const verifyRes = await verifyPayment({
+            bookingId: booking._id,
+            razorpayOrderId: razorpayOrder?.id || 'mock_order_123',
+            razorpayPaymentId: 'pay_mock_' + Math.floor(Math.random() * 1000000),
+            razorpaySignature: 'mock_signature'
+          });
+          
+          if (verifyRes.data && verifyRes.data.success) {
+            setLastCreatedBooking(verifyRes.data.data.booking);
+          } else {
+            setLastCreatedBooking(booking);
+          }
+        } catch (verifyErr) {
+          console.error('Mock payment verification failed, but booking was created:', verifyErr);
+          setLastCreatedBooking(booking);
+        }
+        
         navigate('/video-consultation/confirmation');
       } else {
         setErrorMsg('An unexpected error occurred. Please try again.');

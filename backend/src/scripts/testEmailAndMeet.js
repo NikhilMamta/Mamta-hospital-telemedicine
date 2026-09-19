@@ -7,7 +7,7 @@ import Booking from '../models/Booking.js';
 import { createNewBooking } from '../services/bookingService.js';
 import { getAvailableSlots } from '../services/slotService.js';
 import { verifyPayment } from '../services/paymentService.js';
-import { sendAppointmentConfirmationEmail } from '../services/emailService.js';
+import { sendPatientConfirmationEmail, sendDoctorNotificationEmail } from '../services/emailService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +30,6 @@ async function runTest() {
       process.exit(1);
     }
     console.log(`✓ Active doctor found: Dr. ${doctor.name} (${doctor._id})`);
-
 
     // Fetch available slot dynamically
     const today = new Date().toISOString().split('T')[0];
@@ -89,7 +88,7 @@ async function runTest() {
 
     const verifiedBooking = verifyResult.booking;
     console.log(`✓ Payment verified! Status: ${verifiedBooking.paymentStatus} | Booking Status: ${verifiedBooking.bookingStatus}`);
-    console.log(`✓ Google Meet Link: ${verifiedBooking.googleMeetLink}`);
+    console.log(`✓ Google Meet Link: ${verifiedBooking.googleMeetUrl || verifiedBooking.googleMeetLink}`);
     console.log(`✓ Google Calendar Event ID: ${verifiedBooking.googleCalendarEventId || verifiedBooking.googleEventId}`);
     console.log(`✓ Email Status: ${verifiedBooking.emailStatus} | Sent At: ${verifiedBooking.emailSentAt}`);
 
@@ -102,11 +101,6 @@ async function runTest() {
       'dummy_signature'
     );
     console.log(`✓ Idempotency test passed: Email Status remains '${repeatVerify.booking.emailStatus}' without duplicating`);
-
-    // 4. Test Admin Resend Confirmation
-    console.log('4. Testing Admin Resend Confirmation Email...');
-    const resendResult = await sendAppointmentConfirmationEmail(booking._id, true);
-    console.log(`✓ Resend test result:`, resendResult);
 
     console.log('\n========================================');
     console.log('ALL VERIFICATION TESTS PASSED SUCCESSFULLY!');

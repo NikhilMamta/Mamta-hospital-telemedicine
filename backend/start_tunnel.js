@@ -5,7 +5,6 @@ import localtunnel from 'localtunnel';
     const tunnel = await localtunnel({ port: 5000 });
     console.log(`\n==================================================`);
     console.log(`PUBLIC HTTPS TUNNEL URL: ${tunnel.url}`);
-    console.log(`CAL.COM WEBHOOK URL: ${tunnel.url}/api/webhooks/calcom`);
     console.log(`==================================================\n`);
 
     tunnel.on('close', () => {

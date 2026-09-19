@@ -134,7 +134,6 @@ export const updateDoctor = async (req, res, next) => {
       'consultationFee',
       'consultationDuration',
       'isActive',
-      'calcomEventTypeId',
     ];
 
     updateKeys.forEach((key) => {

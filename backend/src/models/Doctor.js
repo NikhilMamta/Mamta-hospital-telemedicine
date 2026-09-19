@@ -56,10 +56,6 @@ const doctorSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
-    calcomEventTypeId: {
-      type: Number,
-      default: null,
-    },
   },
   {
     timestamps: true,

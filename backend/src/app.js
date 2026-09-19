@@ -9,7 +9,6 @@ import authRoutes from './routes/authRoutes.js';
 import doctorRoutes from './routes/doctorRoutes.js';
 import availabilityRoutes from './routes/availabilityRoutes.js';
 import bookingRoutes from './routes/bookingRoutes.js';
-import calcomWebhookRoutes from './routes/calcomWebhookRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 
 import { notFound } from './middleware/notFoundMiddleware.js';
@@ -58,7 +57,6 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-
 // Development logging
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
@@ -74,13 +72,10 @@ const limiter = rateLimit({
     success: false,
     message: 'Too many requests from this IP, please try again after 15 minutes',
   },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api', limiter);
-
-// Cal.com Webhook — MUST be mounted BEFORE express.json() to preserve raw body for HMAC verification
-app.use('/api', calcomWebhookRoutes);
 
 // Body parser, reading data from body into req.body
 app.use(express.json({ limit: '10kb' }));
@@ -102,7 +97,6 @@ app.get('/api/health', (req, res) => {
     database: 'disconnected',
   });
 });
-
 
 // Mounting Routes
 app.use('/api/auth', authRoutes);

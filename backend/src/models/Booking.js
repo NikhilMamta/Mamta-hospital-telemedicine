@@ -75,7 +75,7 @@ const bookingSchema = new mongoose.Schema(
     },
     bookingStatus: {
       type: String,
-      enum: ['pending', 'confirmed', 'calcom_pending', 'cancelled', 'completed', 'no_show'],
+      enum: ['pending', 'confirmed', 'meeting_pending', 'cancelled', 'completed', 'no_show'],
       default: 'pending',
       index: true,
     },
@@ -93,11 +93,16 @@ const bookingSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
-    googleEventId: {
+    googleCalendarEventId: {
+      type: String,
+      default: '',
+      index: true,
+    },
+    googleMeetUrl: {
       type: String,
       default: '',
     },
-    googleCalendarEventId: {
+    googleEventId: {
       type: String,
       default: '',
     },
@@ -115,20 +120,6 @@ const bookingSchema = new mongoose.Schema(
       type: Date,
     },
     emailError: {
-      type: String,
-      default: '',
-    },
-    // Cal.com integration fields
-    calcomBookingId: {
-      type: Number,
-      default: null,
-    },
-    calcomBookingUid: {
-      type: String,
-      default: '',
-      index: true,
-    },
-    calcomStatus: {
       type: String,
       default: '',
     },

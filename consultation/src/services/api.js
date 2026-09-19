@@ -63,9 +63,20 @@ export const createBooking = async (bookingData) => {
   }
 };
 
+export const verifyPayment = async (paymentData) => {
+  try {
+    const res = await api.post('/payments/verify', paymentData);
+    return res;
+  } catch (err) {
+    console.error('[API Error] POST /payments/verify failed:', err);
+    throw err;
+  }
+};
+
 export default {
   getDoctors,
   getDoctorSlots,
   createBooking,
+  verifyPayment,
 };
 

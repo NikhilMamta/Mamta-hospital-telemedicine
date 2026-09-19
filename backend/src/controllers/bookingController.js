@@ -3,7 +3,8 @@ import Doctor from '../models/Doctor.js';
 import { createNewBooking } from '../services/bookingService.js';
 import { getAvailableSlots } from '../services/slotService.js';
 import { createOrder, verifyPayment } from '../services/paymentService.js';
-import { createCalcomBooking } from '../services/calcomService.js';
+import { createGoogleCalendarEvent } from '../services/googleCalendarService.js';
+import { sendPatientConfirmationEmail, sendDoctorNotificationEmail } from '../services/emailService.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
 /**
@@ -46,7 +47,6 @@ export const createBooking = async (req, res, next) => {
       razorpayOrder,
     }, 201);
   } catch (error) {
-    // Check validation error messages
     if (error.message.includes('not found') || error.message.includes('inactive')) {
       return sendError(res, error.message, 404);
     }
@@ -132,7 +132,7 @@ export const getAdminBookings = async (req, res, next) => {
     }
 
     const bookings = await Booking.find(filter)
-      .populate('doctorId', 'name specialization qualification consultationFee')
+      .populate('doctorId', 'name specialization qualification consultationFee email phone')
       .sort({ createdAt: -1 });
 
     return sendSuccess(res, bookings);
@@ -161,9 +161,8 @@ export const updateAdminBooking = async (req, res, next) => {
 
     await booking.save();
 
-    // Fetch fresh populated record to return
     const updatedBooking = await Booking.findById(booking._id)
-      .populate('doctorId', 'name specialization qualification profileImage');
+      .populate('doctorId', 'name specialization qualification profileImage email phone');
 
     return sendSuccess(res, updatedBooking);
   } catch (error) {
@@ -172,16 +171,11 @@ export const updateAdminBooking = async (req, res, next) => {
 };
 
 /**
- * @desc    Resend confirmation email for a booking (Admin only)
- * @route   POST /api/admin/bookings/:id/resend-confirmation
+ * @desc    Retry Google Calendar & Google Meet creation for a paid booking (Admin only)
+ * @route   POST /api/admin/bookings/:id/retry-meeting
  * @access  Private (Admin)
  */
-/**
- * @desc    Retry Cal.com booking creation for a failed/pending booking (Admin only)
- * @route   POST /api/admin/bookings/:id/retry-calcom
- * @access  Private (Admin)
- */
-export const retryCalcomBookingHandler = async (req, res, next) => {
+export const retryMeetingHandler = async (req, res, next) => {
   try {
     const booking = await Booking.findById(req.params.id).populate('doctorId');
     if (!booking) {
@@ -190,15 +184,15 @@ export const retryCalcomBookingHandler = async (req, res, next) => {
 
     // Only retry if payment has been confirmed
     if (booking.paymentStatus !== 'paid') {
-      return sendError(res, 'Cannot retry Cal.com booking — payment has not been verified', 400);
+      return sendError(res, 'Cannot create Google Meeting — payment has not been verified', 400);
     }
 
-    // Idempotency: skip if Cal.com booking already exists
-    if (booking.calcomBookingUid) {
+    // Idempotency: skip if event & Meet URL already exist
+    if (booking.googleCalendarEventId && booking.googleMeetUrl) {
       const updatedBooking = await Booking.findById(booking._id)
-        .populate('doctorId', 'name specialization qualification profileImage');
+        .populate('doctorId', 'name specialization qualification profileImage email phone');
       return sendSuccess(res, {
-        message: `Cal.com booking already exists (UID: ${booking.calcomBookingUid}) — no retry needed`,
+        message: `Google Meet room already exists (${booking.googleMeetUrl}) — no retry needed`,
         booking: updatedBooking,
       });
     }
@@ -208,29 +202,83 @@ export const retryCalcomBookingHandler = async (req, res, next) => {
       return sendError(res, 'Doctor not found for this booking', 404);
     }
 
-    const calResult = await createCalcomBooking(booking, doctor);
+    const calResult = await createGoogleCalendarEvent(booking, doctor);
+    booking.googleCalendarEventId = calResult.googleCalendarEventId;
+    booking.googleEventId = calResult.googleCalendarEventId;
+    booking.googleMeetUrl = calResult.googleMeetUrl;
+    booking.googleMeetLink = calResult.googleMeetUrl;
 
-    if (calResult.error) {
-      return sendError(res, `Cal.com retry failed: ${calResult.error}`, 502);
+    // Promote meeting_pending → confirmed
+    booking.bookingStatus = 'confirmed';
+    await booking.save();
+
+    // Send emails
+    if (booking.emailStatus !== 'sent') {
+      try {
+        await sendPatientConfirmationEmail(booking, doctor);
+        try {
+          await sendDoctorNotificationEmail(booking, doctor);
+        } catch (docEmailErr) {
+          console.error(`[RESEND EMAIL] Doctor notification email failed: ${docEmailErr.message}`);
+        }
+        booking.emailStatus = 'sent';
+        booking.emailSentAt = new Date();
+        booking.emailError = '';
+        await booking.save();
+      } catch (emailErr) {
+        console.error(`[RESEND EMAIL FAILED] Patient confirmation email failed for booking ${booking.bookingId}:`, emailErr.message);
+        booking.emailStatus = 'failed';
+        booking.emailError = emailErr.message;
+        await booking.save();
+      }
     }
 
-    if (calResult.calcomBookingId) booking.calcomBookingId = calResult.calcomBookingId;
-    if (calResult.calcomBookingUid) booking.calcomBookingUid = calResult.calcomBookingUid;
-    if (calResult.googleMeetLink) booking.googleMeetLink = calResult.googleMeetLink;
-    if (calResult.calcomStatus) booking.calcomStatus = calResult.calcomStatus;
+    const updatedBooking = await Booking.findById(booking._id)
+      .populate('doctorId', 'name specialization qualification profileImage email phone');
 
-    // Promote calcom_pending → confirmed
-    if (booking.bookingStatus === 'calcom_pending') {
-      booking.bookingStatus = 'confirmed';
+    return sendSuccess(res, {
+      message: 'Google Calendar event & Google Meet room created successfully',
+      booking: updatedBooking,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Resend confirmation email for a confirmed booking (Admin only)
+ * @route   POST /api/admin/bookings/:id/resend-confirmation
+ * @access  Private (Admin)
+ */
+export const resendConfirmationEmailHandler = async (req, res, next) => {
+  try {
+    const booking = await Booking.findById(req.params.id).populate('doctorId');
+    if (!booking) {
+      return sendError(res, 'Booking not found', 404);
     }
 
+    const doctor = booking.doctorId;
+    if (!doctor) {
+      return sendError(res, 'Doctor profile not found for this booking', 404);
+    }
+
+    await sendPatientConfirmationEmail(booking, doctor);
+    try {
+      await sendDoctorNotificationEmail(booking, doctor);
+    } catch (docErr) {
+      console.error(`[RESEND EMAIL] Doctor notification email failed: ${docErr.message}`);
+    }
+
+    booking.emailStatus = 'sent';
+    booking.emailSentAt = new Date();
+    booking.emailError = '';
     await booking.save();
 
     const updatedBooking = await Booking.findById(booking._id)
-      .populate('doctorId', 'name specialization qualification profileImage');
+      .populate('doctorId', 'name specialization qualification profileImage email phone');
 
     return sendSuccess(res, {
-      message: 'Cal.com booking created successfully',
+      message: `Confirmation email resent to ${booking.patient.email}`,
       booking: updatedBooking,
     });
   } catch (error) {
@@ -261,4 +309,3 @@ export const getDoctorSlotsHandler = async (req, res, next) => {
     next(error);
   }
 };
-

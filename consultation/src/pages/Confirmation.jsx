@@ -106,14 +106,14 @@ const Confirmation = () => {
           </div>
         </div>
 
-        {/* Google Meet Placeholder Box */}
-        {lastCreatedBooking.googleMeetLink ? (
+        {/* Google Meet Box */}
+        {(lastCreatedBooking.googleMeetUrl || lastCreatedBooking.googleMeetLink) ? (
           <div className="meet-placeholder-box" style={{ backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', color: '#065f46' }}>
             <Video className="meet-info-icon" size={20} style={{ color: '#059669' }} />
             <div>
               <strong style={{ display: 'block', marginBottom: '4px' }}>Google Meet Link Available</strong>
               <a
-                href={lastCreatedBooking.googleMeetLink}
+                href={lastCreatedBooking.googleMeetUrl || lastCreatedBooking.googleMeetLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-primary btn-sm"
@@ -129,7 +129,7 @@ const Confirmation = () => {
             <div>
               <strong>Consultation Booking Confirmed</strong>
               <span style={{ display: 'block', marginTop: '4px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                Your Google Meet link and appointment confirmation email will be sent by Cal.com shortly. Please check your email at <strong>{lastCreatedBooking?.patient?.email || 'the address you provided'}</strong>.
+                Your Google Meet link and appointment confirmation email have been sent to <strong>{lastCreatedBooking?.patient?.email || 'your email address'}</strong>.
               </span>
             </div>
           </div>
